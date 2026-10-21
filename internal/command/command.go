@@ -393,6 +393,7 @@ func RootCommander(help *bool, ver *bool, chdir *string) Command {
 			ProvidersCommander(),
 			RefreshCommander(),
 			ShowCommander(),
+			SignalsCommander(),
 			TaintCommander(),
 			TestCommander(),
 			VersionCommander(version.Version, version.Prerelease, getproviders.CurrentPlatform),

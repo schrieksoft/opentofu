@@ -3,14 +3,7 @@
 // Copyright (c) 2023 HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-// Package planwalk plans one root against the values an upstream root's plan
-// predicts for it, and reports what that does to this root's own outputs.
-//
-// The predicted values are carried in as real unknowns rather than stand-in
-// values, which is the whole point: tfvars is HCL and cannot express an
-// unknown, so only a caller supplying cty values directly can ask this
-// question.
-package planwalk
+package signals
 
 import (
 	"fmt"

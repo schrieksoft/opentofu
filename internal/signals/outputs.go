@@ -3,7 +3,7 @@
 // Copyright (c) 2023 HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package planwalk
+package signals
 
 import (
 	"encoding/json"
@@ -18,16 +18,21 @@ import (
 // a consumer needs a value for each variable it reads, and an unchanged output
 // is a no-op rather than an absence.
 func OutputChangesFor(plan *plans.Plan) (*OutputChanges, error) {
+	if plan == nil || plan.Changes == nil {
+		return &OutputChanges{FormatVersion: FormatVersion, Outputs: map[string]Value{}}, nil
+	}
+	return OutputChangesFrom(plan.Changes.Outputs)
+}
+
+// OutputChangesFrom reads a set of output changes into the wire format, for a
+// caller that has the changes alone rather than a whole plan.
+func OutputChangesFrom(srcs []*plans.OutputChangeSrc) (*OutputChanges, error) {
 	out := &OutputChanges{
 		FormatVersion: FormatVersion,
 		Outputs:       map[string]Value{},
 	}
 
-	if plan == nil || plan.Changes == nil {
-		return out, nil
-	}
-
-	for _, src := range plan.Changes.Outputs {
+	for _, src := range srcs {
 		if !src.Addr.Module.IsRoot() {
 			continue
 		}

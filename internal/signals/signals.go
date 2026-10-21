@@ -1,24 +1,22 @@
-// Package signals is the wire format passed between roots.
+// Package signals holds the wire format passed between roots.
 //
 // A value may be unknown, which is the whole point: an unknown carries the fact
-// that a value will change without claiming what it will change to. JSON has no
-// representation for that, so values are encoded with cty's msgpack codec and
-// base64'd. Refinements (nullness, string prefix, number and length bounds)
-// survive the round trip; a string prefix longer than 256 bytes is truncated by
-// the codec.
+// that a value will change without claiming what it will change to. A known
+// value is written as itself, so a document can be read, logged and diffed
+// without decoding anything. An unknown has no JSON scalar, so it is written as
+// an object carrying "$unknown", with whatever the plan has narrowed it down to
+// alongside: nullness, a string prefix, number or length bounds.
 //
-// Callers that route these between roots are expected to move Value verbatim
-// without decoding it.
-package planwalk
+// Callers that route these between roots can move a Value verbatim, and can
+// also read it.
+package signals
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
-	ctymsgpack "github.com/zclconf/go-cty/cty/msgpack"
 )
 
 // Action is what a plan says will happen to a value.
@@ -38,9 +36,16 @@ const (
 // consumer should trust the encoded values over it.
 type Value struct {
 	Action Action `json:"action"`
-	Type   []byte `json:"type"`
-	Before string `json:"before,omitempty"`
-	After  string `json:"after,omitempty"`
+
+	// Type is the value's cty type as ctyjson writes it, which is already JSON:
+	// carried as a raw message so it reads as "string" rather than base64.
+	Type json.RawMessage `json:"type"`
+
+	// Before and After are the value itself where the plan knows it, and an
+	// object carrying "$unknown" where it does not. Readable on purpose: a wave
+	// is diagnosed by reading these.
+	Before json.RawMessage `json:"before,omitempty"`
+	After  json.RawMessage `json:"after,omitempty"`
 
 	// Sensitive marks a value the upstream root declared sensitive. It is
 	// carried so a consumer can avoid printing it; the encoded value is not
@@ -103,7 +108,7 @@ func (v Value) DecodeAfter() (cty.Value, error) {
 	if err != nil {
 		return cty.NilVal, err
 	}
-	if v.After == "" {
+	if len(v.After) == 0 {
 		return cty.UnknownVal(ty), nil
 	}
 	return decodeValue(v.After, ty)
@@ -111,7 +116,7 @@ func (v Value) DecodeAfter() (cty.Value, error) {
 
 // DecodeBefore returns the prior value, or cty.NilVal if there was none.
 func (v Value) DecodeBefore() (cty.Value, error) {
-	if v.Before == "" {
+	if len(v.Before) == 0 {
 		return cty.NilVal, nil
 	}
 	ty, err := v.decodeType()
@@ -129,22 +134,14 @@ func (v Value) decodeType() (cty.Type, error) {
 	return ty, nil
 }
 
-func encodeValue(val cty.Value, ty cty.Type) (string, error) {
-	b, err := ctymsgpack.Marshal(val, ty)
-	if err != nil {
-		return "", err
-	}
-	return base64.StdEncoding.EncodeToString(b), nil
+func encodeValue(val cty.Value, ty cty.Type) (json.RawMessage, error) {
+	return readableValue(val, ty)
 }
 
-func decodeValue(s string, ty cty.Type) (cty.Value, error) {
-	b, err := base64.StdEncoding.DecodeString(s)
+func decodeValue(raw json.RawMessage, ty cty.Type) (cty.Value, error) {
+	val, err := fromReadable(raw, ty)
 	if err != nil {
-		return cty.NilVal, fmt.Errorf("decode base64: %w", err)
-	}
-	val, err := ctymsgpack.Unmarshal(b, ty)
-	if err != nil {
-		return cty.NilVal, fmt.Errorf("unmarshal value: %w", err)
+		return cty.NilVal, fmt.Errorf("read value: %w", err)
 	}
 	return val, nil
 }

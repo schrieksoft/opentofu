@@ -1006,3 +1006,47 @@ func pathToTfplan(path cty.Path) (*planproto.Path, error) {
 		Steps: steps,
 	}, nil
 }
+
+////// readOutputChanges reads only what a saved plan predicts for its root module's
+// outputs, without reconstructing the rest of the plan.
+//
+// readPlan requires the plan to have been written by this exact version of the
+// tool, because applying a plan needs every part of it to round-trip precisely
+// and some of those parts change representation between versions. An output
+// change is not one of them: it is a cty value in cty's own encoding, which is
+// stable, so reading just these is safe across versions. That is what lets one
+// build report on a plan another build wrote.
+//
+// The plan file's own format version is still checked, since that is a property
+// of the file rather than of the tool.
+func readOutputChanges(r io.Reader) ([]*plans.OutputChangeSrc, error) {
+	src, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+
+	var rawPlan planproto.Plan
+	if err := proto.Unmarshal(src, &rawPlan); err != nil {
+		return nil, fmt.Errorf("parse error: %w", err)
+	}
+
+	if rawPlan.Version != tfplanFormatVersion {
+		return nil, fmt.Errorf("unsupported plan file format version %d; only version %d is supported", rawPlan.Version, tfplanFormatVersion)
+	}
+
+	changes := make([]*plans.OutputChangeSrc, 0, len(rawPlan.OutputChanges))
+	for _, rawOC := range rawPlan.OutputChanges {
+		change, err := changeFromTfplan(rawOC.Change)
+		if err != nil {
+			return nil, fmt.Errorf("invalid plan for output %q: %w", rawOC.Name, err)
+		}
+
+		changes = append(changes, &plans.OutputChangeSrc{
+			Addr:      addrs.OutputValue{Name: rawOC.Name}.Absolute(addrs.RootModuleInstance),
+			ChangeSrc: *change,
+			Sensitive: rawOC.Sensitive,
+		})
+	}
+
+	return changes, nil
+}

@@ -113,11 +113,40 @@ func Open(filename string, enc encryption.PlanEncryption) (*Reader, error) {
 	}, nil
 }
 
+// ReadOutputChanges reads only what the plan predicts for its root module's
+// outputs. Unlike ReadPlan it does not require the plan to have been written by
+// this version of the tool, because an output change is a cty value in cty's
+// own stable encoding rather than one of the parts whose representation moves.
+func (r *Reader) ReadOutputChanges() ([]*plans.OutputChangeSrc, error) {
+	var planFile *zip.File
+	for _, file := range r.zip.File {
+		if file.Name == tfplanFilename {
+			planFile = file
+			break
+		}
+	}
+	if planFile == nil {
+		return nil, errUnusable(fmt.Errorf("the plan file is invalid"))
+	}
+
+	pr, err := planFile.Open()
+	if err != nil {
+		return nil, errUnusable(fmt.Errorf("failed to retrieve plan from plan file: %w", err))
+	}
+	defer pr.Close()
+
+	changes, err := readOutputChanges(pr)
+	if err != nil {
+		return nil, errUnusable(err)
+	}
+	return changes, nil
+}
+
 // ReadPlan reads the plan embedded in the plan file.
 //
 // Errors can be returned for various reasons, including if the plan file
 // is not of an appropriate format version, if it was created by a different
-// version of OpenTofu, if it is invalid, etc.
+// version of OpenTofu, if it is invalid, etc./
 func (r *Reader) ReadPlan() (*plans.Plan, error) {
 	var planFile *zip.File
 	for _, file := range r.zip.File {

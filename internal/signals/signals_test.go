@@ -1,4 +1,4 @@
-package planwalk
+package signals
 
 import (
 	"encoding/json"

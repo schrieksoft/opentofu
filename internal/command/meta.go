@@ -198,7 +198,7 @@ type Meta struct {
 	inputVariableCache  map[string]backend.UnparsedVariableValue
 
 	// overrideVariableValues are values supplied for one run that outrank every
-	// collected source. Only "planwalk" sets them.
+	// collected source. Only a plan given predicted values sets them.
 	overrideVariableValues map[string]backend.UnparsedVariableValue
 
 	// Since `tofu providers lock` and `tofu providers mirror` have their own
@@ -331,8 +331,8 @@ func (m *Meta) RunOperation(ctx context.Context, b backend.Enhanced, opReq *back
 	opReq.Variables, diags = m.collectVariableValues()
 
 	// Values the caller supplies for this one run, above every collected
-	// source. Only "planwalk" sets these; it carries an upstream root's
-	// predicted values, which are the change being tested.
+	// source. Only a plan given predicted values sets these: they carry what
+	// another root's plan says this root's variables will become.
 	for name, value := range m.overrideVariableValues {
 		opReq.Variables[name] = value
 	}

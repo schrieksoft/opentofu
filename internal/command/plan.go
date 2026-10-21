@@ -17,7 +17,7 @@ import (
 	"github.com/opentofu/opentofu/internal/configs/configload"
 	"github.com/opentofu/opentofu/internal/encryption"
 	"github.com/opentofu/opentofu/internal/plans"
-	"github.com/opentofu/opentofu/internal/planwalk"
+	"github.com/opentofu/opentofu/internal/signals"
 	"github.com/opentofu/opentofu/internal/tfdiags"
 	"github.com/opentofu/opentofu/internal/tofu"
 )
@@ -105,11 +105,11 @@ func (c PlanCommand) Execute(args *arguments.Plan, view views.Plan) int {
 
 	if args.SignalsOut != "" {
 		opReq.InspectPlan = func(plan *plans.Plan) error {
-			changes, err := planwalk.OutputChangesFor(plan)
+			changes, err := signals.OutputChangesFor(plan)
 			if err != nil {
 				return err
 			}
-			return planwalk.WriteOutputChanges(args.SignalsOut, changes)
+			return signals.WriteOutputChanges(args.SignalsOut, changes)
 		}
 	}
 
@@ -203,13 +203,13 @@ func loadPredictedValues(path string) (map[string]backend.UnparsedVariableValue,
 		return nil, diags
 	}
 
-	var in planwalk.Inputs
+	var in signals.Inputs
 	if err := json.Unmarshal(raw, &in); err != nil {
 		diags = diags.Append(fmt.Errorf("parse signals file %s: %w", path, err))
 		return nil, diags
 	}
 
-	if in.FormatVersion != planwalk.FormatVersion {
+	if in.FormatVersion != signals.FormatVersion {
 		diags = diags.Append(fmt.Errorf(
 			"signals file %s has format_version %q, which this version does not know how to read",
 			path, in.FormatVersion))
@@ -218,7 +218,7 @@ func loadPredictedValues(path string) (map[string]backend.UnparsedVariableValue,
 
 	values := map[string]backend.UnparsedVariableValue{}
 	for name, value := range in.Variables {
-		values[name] = planwalk.PredictedValue{Name: name, Value: value}
+		values[name] = signals.PredictedValue{Name: name, Value: value}
 	}
 
 	return values, diags
