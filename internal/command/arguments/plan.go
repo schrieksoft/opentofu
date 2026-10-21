@@ -31,6 +31,18 @@ type Plan struct {
 	// be written to.
 	GenerateConfigPath string
 
+	// SignalsIn names a file holding the values another root's plan predicts for
+	// this root's variables. They are overlaid on the normally resolved
+	// variables, above every other source, because they are the change being
+	// asked about. A variables file cannot express a value that will change
+	// without saying what to, which is what makes this its own input.
+	SignalsIn string
+
+	// SignalsOut names a file to write this root's own predicted output changes
+	// to, or "-" for stdout. Useful on its own: an ordinary plan can say what it
+	// predicts for whoever reads its outputs.
+	SignalsOut string
+
 	// View represents the global view options
 	View *View
 }
@@ -55,6 +67,12 @@ func BindPlan(cli *CommandLine) *Plan {
 	cli.StringVar(&plan.GenerateConfigPath, "generate-config-out", "",
 		`(Experimental) If import blocks are present in configuration, instructs OpenTofu to generate HCL for any imported resources not already present. The configuration is written to a new file at PATH, which must not already exist.
 OpenTofu may still attempt to write configuration if planning fails with an error.`,
+	).SetDisplay("=path")
+	cli.StringVar(&plan.SignalsIn, "signals-in", "",
+		`Load values another root's plan predicts for this root's variables, from the given file. These take precedence over every other source, and a predicted value may be one that will change without saying what to.`,
+	).SetDisplay("=path")
+	cli.StringVar(&plan.SignalsOut, "signals-out", "",
+		`Write what this plan predicts for each of this root's outputs to the given path, or to stdout with "-". With "-" the plan itself is not rendered, so the file stays pipeable.`,
 	).SetDisplay("=path")
 
 	// Special handling for flag groups!

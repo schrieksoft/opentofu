@@ -7,14 +7,19 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/opentofu/opentofu/internal/backend"
 	"github.com/opentofu/opentofu/internal/command/arguments"
 	"github.com/opentofu/opentofu/internal/command/views"
 	"github.com/opentofu/opentofu/internal/configs/configload"
 	"github.com/opentofu/opentofu/internal/encryption"
+	"github.com/opentofu/opentofu/internal/plans"
+	"github.com/opentofu/opentofu/internal/planwalk"
 	"github.com/opentofu/opentofu/internal/tfdiags"
+	"github.com/opentofu/opentofu/internal/tofu"
 )
 
 func PlanCommander() Command {
@@ -58,6 +63,13 @@ func (c PlanCommand) Execute(args *arguments.Plan, view views.Plan) int {
 
 	diags = diags.Append(c.providerDevOverrideRuntimeWarnings())
 
+	predicted, moreDiags := loadPredictedValues(args.SignalsIn)
+	diags = diags.Append(moreDiags)
+	if diags.HasErrors() {
+		view.Diagnostics(diags)
+		return 1
+	}
+
 	// Load the encryption configuration
 	enc, encDiags := c.Encryption(ctx)
 	diags = diags.Append(encDiags)
@@ -75,7 +87,7 @@ func (c PlanCommand) Execute(args *arguments.Plan, view views.Plan) int {
 	}
 
 	// Build the operation request
-	opReq, opDiags := c.OperationRequest(ctx, be, view, args.View, args.Operation, args.OutPath, args.GenerateConfigPath, enc)
+	opReq, opDiags := c.OperationRequest(ctx, be, view, args.View, args.Operation, args.OutPath, args.GenerateConfigPath, enc, args.SignalsOut == "-")
 	diags = diags.Append(opDiags)
 	if diags.HasErrors() {
 		view.Diagnostics(diags)
@@ -87,6 +99,19 @@ func (c PlanCommand) Execute(args *arguments.Plan, view views.Plan) int {
 	// diagnostics.
 	view.Diagnostics(diags)
 	diags = nil
+
+	// Above every collected source, because they are the change being asked about.
+	c.overrideVariableValues = predicted
+
+	if args.SignalsOut != "" {
+		opReq.InspectPlan = func(plan *plans.Plan) error {
+			changes, err := planwalk.OutputChangesFor(plan)
+			if err != nil {
+				return err
+			}
+			return planwalk.WriteOutputChanges(args.SignalsOut, changes)
+		}
+	}
 
 	// Perform the operation
 	op, diags := c.RunOperation(ctx, be, opReq)
@@ -133,6 +158,7 @@ func (c *PlanCommand) OperationRequest(
 	planOutPath string,
 	generateConfigOut string,
 	enc encryption.Encryption,
+	signalsToStdout bool,
 ) (*backend.Operation, tfdiags.Diagnostics) {
 	var diags tfdiags.Diagnostics
 
@@ -149,6 +175,9 @@ func (c *PlanCommand) OperationRequest(
 	opReq.ForceReplace = args.ForceReplace
 	opReq.Type = backend.OperationTypePlan
 	opReq.View = view.Operation()
+	if signalsToStdout {
+		opReq.View = quietPlanOperation{opReq.View}
+	}
 
 	var err error
 	opReq.ConfigLoader, err = configload.Initialise(c.configLoader())
@@ -159,3 +188,47 @@ func (c *PlanCommand) OperationRequest(
 
 	return opReq, diags
 }
+
+// loadPredictedValues reads a signals document and presents each variable it
+// names as a variable value the plan can consume.
+func loadPredictedValues(path string) (map[string]backend.UnparsedVariableValue, tfdiags.Diagnostics) {
+	var diags tfdiags.Diagnostics
+	if path == "" {
+		return nil, diags
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		diags = diags.Append(fmt.Errorf("read signals file: %w", err))
+		return nil, diags
+	}
+
+	var in planwalk.Inputs
+	if err := json.Unmarshal(raw, &in); err != nil {
+		diags = diags.Append(fmt.Errorf("parse signals file %s: %w", path, err))
+		return nil, diags
+	}
+
+	if in.FormatVersion != planwalk.FormatVersion {
+		diags = diags.Append(fmt.Errorf(
+			"signals file %s has format_version %q, which this version does not know how to read",
+			path, in.FormatVersion))
+		return nil, diags
+	}
+
+	values := map[string]backend.UnparsedVariableValue{}
+	for name, value := range in.Variables {
+		values[name] = planwalk.PredictedValue{Name: name, Value: value}
+	}
+
+	return values, diags
+}
+
+// quietPlanOperation passes everything through but drops the rendered plan.
+type quietPlanOperation struct {
+	views.Operation
+}
+
+func (q quietPlanOperation) Plan(*plans.Plan, *tofu.Schemas) {}
+
+func (q quietPlanOperation) PlanNextStep(string, string) {}
