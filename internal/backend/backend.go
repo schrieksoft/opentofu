@@ -337,6 +337,11 @@ type Operation struct {
 	// for unmatched import targets and where any generated config should be
 	// written to.
 	GenerateConfigOut string
+
+	// InspectPlan, when set, is called with the completed plan before the
+	// operation finishes. It exists for callers that need the plan itself
+	// rather than a plan file, and must not modify what it is given.
+	InspectPlan func(*plans.Plan) error
 }
 
 // HasConfig returns true if and only if the operation has a ConfigDir value

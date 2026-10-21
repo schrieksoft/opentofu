@@ -197,6 +197,10 @@ type Meta struct {
 	rootModuleCallCache *configs.StaticModuleCall
 	inputVariableCache  map[string]backend.UnparsedVariableValue
 
+	// overrideVariableValues are values supplied for one run that outrank every
+	// collected source. Only "planwalk" sets them.
+	overrideVariableValues map[string]backend.UnparsedVariableValue
+
 	// Since `tofu providers lock` and `tofu providers mirror` have their own
 	// logic to create the source to fetch providers through, we had to
 	// plumb this configuration through the [Meta] type to reach that part too.
@@ -325,6 +329,14 @@ func (m *Meta) RunOperation(ctx context.Context, b backend.Enhanced, opReq *back
 	// Inject variables and root module call
 	var diags, callDiags tfdiags.Diagnostics
 	opReq.Variables, diags = m.collectVariableValues()
+
+	// Values the caller supplies for this one run, above every collected
+	// source. Only "planwalk" sets these; it carries an upstream root's
+	// predicted values, which are the change being tested.
+	for name, value := range m.overrideVariableValues {
+		opReq.Variables[name] = value
+	}
+
 	opReq.RootCall, callDiags = m.rootModuleCall(ctx, opReq.ConfigDir)
 	diags = diags.Append(callDiags)
 	if diags.HasErrors() {

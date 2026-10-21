@@ -157,6 +157,15 @@ func (b *Local) opPlan(
 	// We still want to try to write the plan file
 	schemas, schemaDiags := lr.Core.Schemas(ctx, lr.Config, lr.InputState)
 
+	// Hand the plan to a caller that wants the plan itself rather than a file.
+	if op.InspectPlan != nil {
+		if err := op.InspectPlan(plan); err != nil {
+			diags = diags.Append(err)
+			op.ReportResult(runningOp, diags)
+			return
+		}
+	}
+
 	// Save the plan to disk
 	if path := op.PlanOutPath; path != "" {
 		if op.PlanOutBackend == nil {

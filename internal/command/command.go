@@ -390,6 +390,7 @@ func RootCommander(help *bool, ver *bool, chdir *string) Command {
 			LogoutCommander(),
 			MetadataCommander(),
 			OutputCommander(),
+			PlanWalkCommander(),
 			ProvidersCommander(),
 			RefreshCommander(),
 			ShowCommander(),
